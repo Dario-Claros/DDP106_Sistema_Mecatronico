@@ -1,0 +1,36 @@
+name: ddp106_pastillero
+description: "App Android para gestionar pastillero inteligente de 7 compartimentos con Firebase."
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.2.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Firebase
+  firebase_core: ^3.3.0
+  firebase_database: ^11.1.0
+  firebase_messaging: ^15.1.0        # FCM — notificaciones push al cuidador
+
+  # Notificaciones locales para recordatorios de pastillas
+  flutter_local_notifications: ^17.2.2
+
+  # Formato de fechas y horas
+  intl: ^0.19.0
+
+  # Iconos Material
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/

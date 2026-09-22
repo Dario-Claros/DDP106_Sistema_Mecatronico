@@ -1,0 +1,73 @@
+{
+  "pastillero": {
+    "compartimento_1": {
+      "compartimento_id": 1,
+      "medicamento": "Omeprazol 20mg",
+      "hora": 8,
+      "minutos": 0,
+      "sensor_ir_activo": false,
+      "pastilla_liberada": false,
+      "fecha_registro": "2026-09-21",
+      "condiciones": [
+        { "pregunta": "¿Ya desayunaste?", "respuesta_requerida": true }
+      ],
+      "tiempo_espera_minutos": 15,
+      "accion_por_defecto": "dispensarPorImportancia"
+    },
+
+    "compartimento_2": {
+      "compartimento_id": 2,
+      "medicamento": "Metformina 500mg",
+      "hora": 13,
+      "minutos": 30,
+      "sensor_ir_activo": false,
+      "pastilla_liberada": false,
+      "fecha_registro": "2026-09-21"
+    },
+    "compartimento_3": {
+      "compartimento_id": 3,
+      "medicamento": "Losartan 50mg",
+      "hora": 20,
+      "minutos": 0,
+      "sensor_ir_activo": false,
+      "pastilla_liberada": false,
+      "fecha_registro": "2026-09-21"
+    },
+    "compartimento_4": {
+      "compartimento_id": 4,
+      "medicamento": "Vitamina D3",
+      "hora": 12,
+      "minutos": 0,
+      "sensor_ir_activo": false,
+      "pastilla_liberada": false,
+      "fecha_registro": "2026-09-21"
+    },
+    "compartimento_5": {
+      "compartimento_id": 5,
+      "medicamento": "Aspirina 100mg",
+      "hora": 9,
+      "minutos": 15,
+      "sensor_ir_activo": false,
+      "pastilla_liberada": false,
+      "fecha_registro": "2026-09-21"
+    },
+    "compartimento_6": {
+      "compartimento_id": 6,
+      "medicamento": "",
+      "hora": 7,
+      "minutos": 0,
+      "sensor_ir_activo": false,
+      "pastilla_liberada": false,
+      "fecha_registro": "2026-09-21"
+    },
+    "compartimento_7": {
+      "compartimento_id": 7,
+      "medicamento": "",
+      "hora": 21,
+      "minutos": 0,
+      "sensor_ir_activo": false,
+      "pastilla_liberada": false,
+      "fecha_registro": "2026-09-21"
+    }
+  }
+}
