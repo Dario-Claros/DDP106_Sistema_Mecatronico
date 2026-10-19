@@ -2,11 +2,6 @@ import 'package:flutter/material.dart';
 import '../models/compartimento_model.dart';
 
 /// Tarjeta que representa visualmente un compartimento del pastillero.
-///
-/// Indicadores de color:
-///   🟢 Verde  — pastilla tomada (sensor IR activo)
-///   🔵 Azul   — pastilla liberada pero no confirmada como tomada
-///   🔴 Rojo   — pastilla pendiente (ni liberada ni tomada)
 class CompartimentoCard extends StatelessWidget {
   final CompartimentoModel compartimento;
   final VoidCallback onTap;
@@ -20,7 +15,9 @@ class CompartimentoCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = compartimento;
-    final estado = _calcularEstado(c);
+    final color = c.hayCondicion
+        ? (c.liberarPorEmergencia ? Colors.green : Colors.blue)
+        : Colors.grey;
 
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 6),
@@ -31,14 +28,14 @@ class CompartimentoCard extends StatelessWidget {
           padding: const EdgeInsets.all(14),
           child: Row(
             children: [
-              // ── Indicador de compartimento ──
+              // Indicador numérico del compartimento
               Container(
                 width: 48,
                 height: 48,
                 decoration: BoxDecoration(
-                  color: estado.color.withOpacity(0.15),
+                  color: color.withOpacity(0.15),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: estado.color, width: 2),
+                  border: Border.all(color: color, width: 2),
                 ),
                 child: Center(
                   child: Text(
@@ -46,21 +43,22 @@ class CompartimentoCard extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
-                      color: estado.color,
+                      color: color,
                     ),
                   ),
                 ),
               ),
               const SizedBox(width: 14),
 
-              // ── Información central ──
+              // Información central (expandible)
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // Nombre del medicamento
                     Text(
                       c.medicamento.isEmpty
-                          ? 'Sin medicamento asignado'
+                          ? 'Sin medicamento'
                           : c.medicamento,
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
@@ -70,8 +68,11 @@ class CompartimentoCard extends StatelessWidget {
                             ? FontStyle.italic
                             : FontStyle.normal,
                       ),
+                      overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 4),
+
+                    // Hora
                     Row(
                       children: [
                         const Icon(Icons.schedule, size: 14, color: Colors.grey),
@@ -80,50 +81,30 @@ class CompartimentoCard extends StatelessWidget {
                           c.horaFormateada,
                           style: const TextStyle(color: Colors.grey),
                         ),
-                        const SizedBox(width: 12),
-                        // Badge de estado
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: estado.color.withOpacity(0.15),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            estado.etiqueta,
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: estado.color,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
                       ],
                     ),
+
+                    // Badges en segunda línea (solo si hay algo que mostrar)
+                    if (c.hayCondicion || c.liberarPorEmergencia || c.intentos > 0) ...[
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 4,
+                        runSpacing: 4,
+                        children: [
+                          if (c.hayCondicion)
+                            _badge('Condición', Colors.blue, Icons.help_outline),
+                          if (c.liberarPorEmergencia)
+                            _badge('Emergencia', Colors.red, Icons.warning_amber_rounded),
+                          if (c.intentos > 0)
+                            _badge('${c.intentos} intentos', Colors.orange, Icons.repeat),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ),
 
-              // ── Iconos de estado IR / Liberación ──
-              Column(
-                children: [
-                  _iconEstado(
-                    icon: Icons.sensors,
-                    activo: c.sensorIrActivo,
-                    tooltip: c.sensorIrActivo ? 'IR: Tomada' : 'IR: Pendiente',
-                  ),
-                  const SizedBox(height: 4),
-                  _iconEstado(
-                    icon: Icons.lock_open,
-                    activo: c.pastillaLiberada,
-                    tooltip: c.pastillaLiberada
-                        ? 'Liberada'
-                        : 'No liberada',
-                  ),
-                ],
-              ),
-
-              const SizedBox(width: 8),
+              const SizedBox(width: 4),
               const Icon(Icons.chevron_right, color: Colors.grey),
             ],
           ),
@@ -132,38 +113,29 @@ class CompartimentoCard extends StatelessWidget {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Helpers
-  // ---------------------------------------------------------------------------
-
-  _EstadoCompartimento _calcularEstado(CompartimentoModel c) {
-    if (c.sensorIrActivo) {
-      return _EstadoCompartimento(Colors.green, '✅ Tomada');
-    } else if (c.pastillaLiberada) {
-      return _EstadoCompartimento(Colors.blue, '🔵 Liberada');
-    } else {
-      return _EstadoCompartimento(Colors.red, '⏳ Pendiente');
-    }
-  }
-
-  Widget _iconEstado({
-    required IconData icon,
-    required bool activo,
-    required String tooltip,
-  }) {
-    return Tooltip(
-      message: tooltip,
-      child: Icon(
-        icon,
-        size: 18,
-        color: activo ? Colors.green : Colors.grey[400],
+  /// Badge compacto con ícono y texto.
+  Widget _badge(String text, Color color, IconData icon) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 3),
+          Text(
+            text,
+            style: TextStyle(
+              fontSize: 10,
+              color: color,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
   }
-}
-
-class _EstadoCompartimento {
-  final Color color;
-  final String etiqueta;
-  const _EstadoCompartimento(this.color, this.etiqueta);
 }

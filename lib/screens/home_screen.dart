@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/compartimento_model.dart';
 import '../services/firebase_service.dart';
 import 'detalle_compartimento_screen.dart';
+import 'historial_screen.dart';
 import '../widgets/compartimento_card.dart';
 
 /// Pantalla principal — muestra los 7 compartimentos del pastillero
@@ -36,18 +37,18 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         actions: [
-          // Botón para reiniciar estados diarios manualmente
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            tooltip: 'Reiniciar estados del día',
-            onPressed: _confirmarReinicio,
+          TextButton.icon(
+            onPressed: _abrirHistorial,
+            icon: const Icon(Icons.assessment_outlined),
+            label: const Text('Reportes'),
           ),
+          const SizedBox(width: 4),
         ],
       ),
       body: StreamBuilder<List<CompartimentoModel>>(
         stream: _firebaseService.watchCompartimentos(),
         builder: (context, snapshot) {
-          // ── Estado de carga ──
+          // Estado de carga
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(
               child: Column(
@@ -55,13 +56,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: [
                   CircularProgressIndicator(),
                   SizedBox(height: 16),
-                  Text('Conectando con Firebase…'),
+                  Text('Conectando con Firebase...'),
                 ],
               ),
             );
           }
 
-          // ── Estado de error ──
+          // Estado de error
           if (snapshot.hasError) {
             return Center(
               child: Column(
@@ -80,7 +81,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
           final compartimentos = snapshot.data ?? [];
 
-          // ── Resumen del estado ──
+          // Resumen del estado
           return Column(
             children: [
               _buildResumenBar(compartimentos),
@@ -110,9 +111,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// Barra superior con estadísticas del día.
   Widget _buildResumenBar(List<CompartimentoModel> lista) {
-    final tomadas = lista.where((c) => c.sensorIrActivo).length;
-    final liberadas = lista.where((c) => c.pastillaLiberada).length;
-    final pendientes = 7 - tomadas;
+    final configurados = lista.where((c) => c.medicamento.isNotEmpty).length;
+    final conCondicion = lista.where((c) => c.hayCondicion).length;
+    final emergencia = lista.where((c) => c.liberarPorEmergencia).length;
 
     return Container(
       width: double.infinity,
@@ -121,9 +122,9 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _statChip(Icons.check_circle, '$tomadas', 'Tomadas', Colors.green),
-          _statChip(Icons.lock_open, '$liberadas', 'Liberadas', Colors.blue),
-          _statChip(Icons.pending, '$pendientes', 'Pendientes', Colors.orange),
+          _statChip(Icons.medication, '$configurados', 'Configurados', Colors.blue),
+          _statChip(Icons.help_outline, '$conCondicion', 'Con condición', Colors.orange),
+          _statChip(Icons.warning_amber, '$emergencia', 'Emergencia', Colors.red),
         ],
       ),
     );
@@ -143,7 +144,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // ---------------------------------------------------------------------------
-  // Navegación y diálogos
+  // Navegación
   // ---------------------------------------------------------------------------
 
   void _abrirDetalle(CompartimentoModel compartimento) {
@@ -156,32 +157,11 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _confirmarReinicio() {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Reiniciar estados'),
-        content: const Text(
-          '¿Reiniciar sensor IR y liberación de los 7 compartimentos?\n'
-          'Esto marca el inicio de un nuevo día.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              _firebaseService.reiniciarEstadosDiarios();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                    content: Text('✅ Estados reiniciados para hoy')),
-              );
-            },
-            child: const Text('Reiniciar'),
-          ),
-        ],
+  void _abrirHistorial() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const HistorialScreen(),
       ),
     );
   }

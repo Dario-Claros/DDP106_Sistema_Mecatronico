@@ -5,7 +5,7 @@ import '../models/compartimento_model.dart';
 ///
 /// Arquitectura de datos:
 ///   Firebase (intermediario)
-///       ↑ escribe              ↓ lee
+///       ← escribe              → lee
 ///   App Android           ESP32/Arduino
 ///
 /// Nodo raíz en Firebase: `/pastillero`
@@ -59,32 +59,28 @@ class FirebaseService {
         .set(compartimento.toMap());
   }
 
-  /// Actualiza únicamente el campo [sensorIrActivo].
-  Future<void> actualizarSensorIR(int compartimentoId, bool estado) async {
+  /// Actualiza únicamente el número de intentos.
+  Future<void> actualizarIntentos(int compartimentoId, int intentos) async {
     await _dbRef
         .child('compartimento_$compartimentoId')
-        .update({'sensor_ir_activo': estado});
+        .update({'intentos': intentos});
   }
 
-  /// Actualiza únicamente el campo [pastillaLiberada].
-  Future<void> actualizarLiberacion(int compartimentoId, bool liberada) async {
+  /// Actualiza la condición previa (pregunta Sí/No).
+  Future<void> actualizarCondicion(
+      int compartimentoId, bool hayCondicion, String msgCondicion) async {
+    await _dbRef.child('compartimento_$compartimentoId').update({
+      'hay_condicion': hayCondicion,
+      'msg_condicion': msgCondicion,
+    });
+  }
+
+  /// Actualiza si se debe liberar por emergencia.
+  Future<void> actualizarLiberarPorEmergencia(
+      int compartimentoId, bool liberar) async {
     await _dbRef
         .child('compartimento_$compartimentoId')
-        .update({'pastilla_liberada': liberada});
-  }
-
-  /// Reinicia los estados diarios de todos los compartimentos.
-  Future<void> reiniciarEstadosDiarios() async {
-    final hoy = _fechaHoy();
-    final Map<String, dynamic> updates = {};
-
-    for (int i = 1; i <= 7; i++) {
-      updates['compartimento_$i/sensor_ir_activo'] = false;
-      updates['compartimento_$i/pastilla_liberada'] = false;
-      updates['compartimento_$i/fecha_registro'] = hoy;
-    }
-
-    await _dbRef.update(updates);
+        .update({'liberar_por_emergencia': liberar});
   }
 
   /// Inicializa los 7 compartimentos en Firebase con valores por defecto
@@ -102,12 +98,11 @@ class FirebaseService {
         'medicamento': '',
         'hora': 8,
         'minutos': 0,
-        'sensor_ir_activo': false,
-        'pastilla_liberada': false,
+        'hay_condicion': false,
+        'msg_condicion': '',
+        'liberar_por_emergencia': false,
+        'intentos': 0,
         'fecha_registro': hoy,
-        'condiciones': [],
-        'tiempo_espera_minutos': 15,
-        'accion_por_defecto': 'dispensarPorImportancia',
       };
     }
 
@@ -119,8 +114,6 @@ class FirebaseService {
   // ---------------------------------------------------------------------------
 
   /// Guarda el token FCM del dispositivo del cuidador en Firebase.
-  /// La Cloud Function lo leerá para enviar la notificación push cuando
-  /// el ESP32 detecte una pastilla ignorada.
   Future<void> guardarTokenCuidador(String token) async {
     await FirebaseDatabase.instance.ref('config/fcm_token_cuidador').set({
       'token': token,
@@ -152,8 +145,6 @@ class FirebaseService {
       medicamento: '',
       hora: 8,
       minutos: 0,
-      sensorIrActivo: false,
-      pastillaLiberada: false,
       fechaRegistro: _fechaHoy(),
     );
   }

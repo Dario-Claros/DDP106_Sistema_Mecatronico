@@ -15,7 +15,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   // Mostrar notificación local directamente sin contexto de Flutter
-  await NotificacionService._mostrarNotificacionLocal(
+  await NotificacionService.mostrarNotificacionLocal(
     titulo: message.notification?.title ?? '⚠️ Pastillero — Intervención requerida',
     cuerpo: message.notification?.body ??
         'Una pastilla fue ignorada. Se requiere intervención del familiar.',
@@ -108,7 +108,7 @@ class NotificacionService {
 
   /// Muestra una notificación local de alerta crítica.
   /// Método estático para poder usarlo desde el handler de background.
-  static Future<void> _mostrarNotificacionLocal({
+  static Future<void> mostrarNotificacionLocal({
     required String titulo,
     required String cuerpo,
     String payload = '',
@@ -232,7 +232,7 @@ class NotificacionService {
       onNotificacionTocada?.call(compartimentoId);
     } else {
       // Mostrar notificación local urgente en primer plano
-      _mostrarNotificacionLocal(
+      mostrarNotificacionLocal(
         id: int.tryParse(compartimentoId) ?? 0,
         titulo: '⚠️ Intervención requerida — Compartimento $compartimentoId',
         cuerpo: _construirMensajeAlerta(
@@ -256,7 +256,7 @@ class NotificacionService {
     required String medicamento,
     required String hora,
   }) async {
-    await _mostrarNotificacionLocal(
+    await mostrarNotificacionLocal(
       id: compartimentoId,
       titulo: '⚠️ Pastilla ignorada — Acción requerida',
       cuerpo: _construirMensajeAlerta(

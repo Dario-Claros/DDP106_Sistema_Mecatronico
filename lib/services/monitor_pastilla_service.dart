@@ -1,19 +1,16 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_database/firebase_database.dart';
-import '../models/compartimento_model.dart';
 import 'notificacion_service.dart';
 
-/// Servicio que monitorea en tiempo real Firebase Realtime Database
-/// para detectar pastillas ignoradas y disparar notificaciones al cuidador.
+/// Servicio que monitorea en tiempo real el nodo `/pastillero/eventos/ultimo_evento`
+/// actualizado por el ESP32 de Isel y genera tanto la notificación push local
+/// como el registro en `/pastillero/eventos/historial`.
 ///
-/// Condición de "pastilla ignorada":
-///   pastilla_liberada == true  (el ESP32 abrió el compartimento)
-///   AND sensor_ir_activo == false  (el sensor IR NO detectó que se tomó)
-///   AND han pasado >= [tiempoEsperaMinutos] desde la hora programada
-///
-/// Nota: El ESP32 NO regresa la pastilla automáticamente. El cuidador
-/// DEBE intervenir físicamente. La notificación lo indica explícitamente.
+/// Valores enviados por el ESP32 en `tipo`:
+///   - "dispensado"
+///   - "retirado"
+///   - "ignorado"
 class MonitorPastillaService {
   // Singleton
   static final MonitorPastillaService _instance =
@@ -21,137 +18,158 @@ class MonitorPastillaService {
   factory MonitorPastillaService() => _instance;
   MonitorPastillaService._internal();
 
-  final DatabaseReference _dbRef =
-      FirebaseDatabase.instance.ref('pastillero');
-  final NotificacionService _notifService = NotificacionService();
+  final DatabaseReference _ultimoEventoRef =
+      FirebaseDatabase.instance.ref('pastillero/eventos/ultimo_evento');
 
   StreamSubscription<DatabaseEvent>? _subscription;
 
-  // Registro de alertas ya enviadas en el día para no duplicar notificaciones.
-  // Clave: 'compartimento_N_yyyy-MM-dd'
-  final Set<String> _alertasEnviadas = {};
+  bool _primeraLectura = true;
+  String _ultimoEventoProcesado = '';
 
   // ---------------------------------------------------------------------------
   // Control del monitor
   // ---------------------------------------------------------------------------
 
-  /// Inicia el monitoreo en tiempo real.
-  /// Llamar desde [main()] después de inicializar Firebase y notificaciones.
+  /// Inicia el monitoreo en tiempo real del último evento del ESP32.
   void iniciar() {
     _subscription?.cancel();
-    _subscription = _dbRef.onValue.listen(
-      _evaluarEstado,
-      onError: (e) => debugPrint('[Monitor] Error en stream: $e'),
+    _primeraLectura = true;
+    _subscription = _ultimoEventoRef.onValue.listen(
+      _evaluarUltimoEvento,
+      onError: (e) => debugPrint('[Monitor] Error en stream de eventos: $e'),
     );
-    debugPrint('[Monitor] Monitoreo de pastillas iniciado.');
+    debugPrint('[Monitor] Monitoreo de /pastillero/eventos/ultimo_evento iniciado.');
   }
 
-  /// Detiene el monitoreo. Llamar en dispose() si es necesario.
+  /// Detiene el monitoreo.
   void detener() {
     _subscription?.cancel();
     _subscription = null;
     debugPrint('[Monitor] Monitoreo detenido.');
   }
 
-  /// Limpia el registro de alertas (llamar al inicio de cada nuevo día).
-  void limpiarAlertas() => _alertasEnviadas.clear();
+  /// Limpia el estado del último evento procesado.
+  void limpiarAlertas() {
+    _ultimoEventoProcesado = '';
+  }
 
   // ---------------------------------------------------------------------------
-  // Lógica de evaluación
+  // Lógica de evaluación del Bus de Eventos (ESP32 -> App -> Historial)
   // ---------------------------------------------------------------------------
 
-  Future<void> _evaluarEstado(DatabaseEvent event) async {
+  Future<void> _evaluarUltimoEvento(DatabaseEvent event) async {
     final data = event.snapshot.value;
-    if (data == null) return;
-
-    final map = Map<dynamic, dynamic>.from(data as Map);
-    final ahora = DateTime.now();
-
-    for (int i = 1; i <= 7; i++) {
-      final key = 'compartimento_$i';
-      if (!map.containsKey(key)) continue;
-
-      final compMap = Map<dynamic, dynamic>.from(map[key] as Map);
-      final comp = CompartimentoModel.fromMap(compMap);
-
-      _verificarIgnorada(comp, ahora);
+    if (data == null || data is! Map) {
+      _primeraLectura = false;
+      return;
     }
-  }
 
-  void _verificarIgnorada(CompartimentoModel comp, DateTime ahora) {
-    // ── Condición 1: la pastilla fue liberada pero NO tomada ──
-    if (!comp.pastillaLiberada || comp.sensorIrActivo) return;
+    final ultimoEvento = Map<dynamic, dynamic>.from(data);
 
-    // ── Condición 2: el registro es de hoy ──
-    if (!comp.esDeHoy) return;
+    final tipo = (ultimoEvento['tipo'] as String?)?.trim() ?? '';
+    final compartimentoId =
+        (ultimoEvento['compartimiento'] as num?)?.toInt() ??
+        (ultimoEvento['compartimento'] as num?)?.toInt() ??
+        0;
+    final medicamentoRaw = (ultimoEvento['medicamento'] as String?)?.trim() ?? '';
+    final medicamento =
+        medicamentoRaw.isEmpty ? 'Compartimento $compartimentoId' : medicamentoRaw;
 
-    // ── Condición 3: ya pasó el tiempo de espera desde la hora programada ──
-    final horaLiberacion = DateTime(
-      ahora.year,
-      ahora.month,
-      ahora.day,
-      comp.hora,
-      comp.minutos,
+    if (tipo.isEmpty) {
+      _primeraLectura = false;
+      return;
+    }
+
+    final firmaActual = '${compartimentoId}_${medicamento}_$tipo';
+
+    // Ignorar el valor que ya estaba guardado en Firebase al abrir la app
+    // para no disparar una notificación vieja al iniciar.
+    if (_primeraLectura) {
+      _primeraLectura = false;
+      _ultimoEventoProcesado = firmaActual;
+      debugPrint('[Monitor] Evento inicial en Firebase ignorado: $firmaActual');
+      return;
+    }
+
+    // Disparamos la notificación y guardamos en el historial
+    _ultimoEventoProcesado = firmaActual;
+    await _procesarNuevoEvento(
+      compartimentoId: compartimentoId,
+      medicamento: medicamento,
+      tipo: tipo,
     );
-    final minutosTranscurridos =
-        ahora.difference(horaLiberacion).inMinutes;
-
-    if (minutosTranscurridos < comp.tiempoEsperaMinutos) return;
-
-    // ── Condición 4: aún no enviamos alerta para este compartimento hoy ──
-    final claveAlerta =
-        'comp_${comp.compartimentoId}_${comp.fechaRegistro}';
-    if (_alertasEnviadas.contains(claveAlerta)) return;
-
-    // ── ¡Disparar alerta! ──
-    _alertasEnviadas.add(claveAlerta);
-    _dispararAlerta(comp, minutosTranscurridos);
   }
 
-  Future<void> _dispararAlerta(
-      CompartimentoModel comp, int minutosTranscurridos) async {
+  Future<void> _procesarNuevoEvento({
+    required int compartimentoId,
+    required String medicamento,
+    required String tipo,
+  }) async {
     debugPrint(
-        '[Monitor] ⚠️ Pastilla ignorada detectada — Compartimento ${comp.compartimentoId}');
+        '[Monitor] 🔔 Nuevo evento del ESP32: tipo="$tipo", med="$medicamento", comp=$compartimentoId');
 
-    await _notifService.notificarPastillaIgnorada(
-      compartimentoId: comp.compartimentoId,
-      medicamento: comp.medicamento.isEmpty
-          ? 'Medicamento ${comp.compartimentoId}'
-          : comp.medicamento,
-      hora: comp.horaFormateada,
+    final tipoLower = tipo.toLowerCase();
+    String titulo = 'Pastillero DDP106';
+    String cuerpo =
+        'La pastilla $medicamento (Comp. $compartimentoId) registró el evento: $tipo.';
+
+    if (tipoLower.startsWith('dispensad')) {
+      titulo = '💊 Pastilla dispensada';
+      cuerpo =
+          'La pastilla $medicamento (Compartimento $compartimentoId) fue dispensada.';
+    } else if (tipoLower.startsWith('retirad')) {
+      titulo = '✅ Pastilla retirada';
+      cuerpo =
+          'La pastilla $medicamento (Compartimento $compartimentoId) fue retirada por el paciente.';
+    } else if (tipoLower.startsWith('ignorad')) {
+      titulo = '🚨 Pastilla ignorada';
+      cuerpo =
+          'La pastilla $medicamento (Compartimento $compartimentoId) fue ignorada. Requiere atención.';
+    }
+
+    await NotificacionService.mostrarNotificacionLocal(
+      id: DateTime.now().millisecondsSinceEpoch.remainder(100000),
+      titulo: titulo,
+      cuerpo: cuerpo,
+      payload: 'comp_$compartimentoId',
     );
 
-    // Registrar el evento en Firebase para historial / Cloud Functions
-    await _registrarAlertaEnFirebase(comp, minutosTranscurridos);
+    await _guardarEnHistorialFirebase(
+      compartimentoId: compartimentoId,
+      medicamento: medicamento,
+      tipo: tipoLower,
+    );
   }
 
-  Future<void> _registrarAlertaEnFirebase(
-      CompartimentoModel comp, int minutosTranscurridos) async {
+  Future<void> _guardarEnHistorialFirebase({
+    required int compartimentoId,
+    required String medicamento,
+    required String tipo,
+  }) async {
     try {
       final ahora = DateTime.now();
-      final timestamp =
-          '${ahora.year}-${ahora.month.toString().padLeft(2, '0')}-'
-          '${ahora.day.toString().padLeft(2, '0')}T'
-          '${ahora.hour.toString().padLeft(2, '0')}:'
-          '${ahora.minute.toString().padLeft(2, '0')}';
+      final fecha =
+          '${ahora.year}-${ahora.month.toString().padLeft(2, '0')}-${ahora.day.toString().padLeft(2, '0')}';
+      final hora =
+          '${ahora.hour.toString().padLeft(2, '0')}:${ahora.minute.toString().padLeft(2, '0')}';
+      final timestamp = '${fecha}T$hora';
 
-      // Escribe el evento en /alertas/ → la Cloud Function lo usa para
-      // enviar el FCM push al token del cuidador (dispositivos en segundo plano)
-      await FirebaseDatabase.instance.ref('alertas').push().set({
-        'compartimento_id': comp.compartimentoId,
-        'medicamento': comp.medicamento,
-        'hora_programada': comp.horaFormateada,
-        'minutos_transcurridos': minutosTranscurridos,
-        'accion_configurada': comp.accionPorDefecto.firebaseValue,
+      // Guardamos en /pastillero/eventos/historial como pidió Isel
+      await FirebaseDatabase.instance
+          .ref('pastillero/eventos/historial')
+          .push()
+          .set({
+        'compartimiento': compartimentoId,
+        'medicamento': medicamento,
+        'tipo': tipo,
+        'fecha': fecha,
+        'hora': hora,
         'timestamp': timestamp,
-        'estado': 'pastilla_ignorada',
-        'requiere_intervencion': true,
-        'pastilla_regresa_automaticamente': false,
       });
 
-      debugPrint('[Monitor] Alerta registrada en Firebase /alertas/');
+      debugPrint('[Monitor] Evento guardado en /pastillero/eventos/historial');
     } catch (e) {
-      debugPrint('[Monitor] Error registrando alerta: $e');
+      debugPrint('[Monitor] Error guardando en historial: $e');
     }
   }
 }
